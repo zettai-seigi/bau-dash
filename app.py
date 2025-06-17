@@ -397,6 +397,60 @@ with tab_performance:
     st.dataframe(assignee_perf.round(2))
 
 with tab_categorical:
+    st.markdown("### Monthly Ticket Channel Breakdown")
+    with st.popover("❓"):
+        st.markdown("""
+        **Purpose**: To visualize the breakdown of ticket volumes by channel over time, similar to the provided Excel analysis.
+        
+        **Key Insights**:
+        - Identify which channels are growing or shrinking in usage.
+        - Understand monthly patterns for each channel.
+        - Compare channel volumes side-by-side.
+        
+        **Chart Explanation**: A grouped bar chart showing the number of tickets for each channel, for each month. The table above the chart provides the raw numbers, including a grand total for each month.
+        """)
+
+    # Prepare data for pivot table and chart
+    if len(filtered_df) > 0 and 'Channel' in filtered_df.columns and 'YearMonth' in filtered_df.columns:
+        # Group by month and channel
+        channel_monthly = filtered_df.dropna(subset=['Channel']).groupby(['YearMonth', 'Channel']).size().reset_index(name='Tickets')
+
+        if not channel_monthly.empty:
+            # Create pivot table for display
+            channel_pivot = channel_monthly.pivot_table(index='Channel', columns='YearMonth', values='Tickets', fill_value=0)
+            
+            # Ensure columns (months) are sorted chronologically
+            channel_pivot = channel_pivot.reindex(sorted(channel_pivot.columns), axis=1)
+
+            # Add Grand Total row
+            if not channel_pivot.empty:
+                grand_total_row = channel_pivot.sum().rename('Grand Total')
+                channel_pivot_with_total = pd.concat([channel_pivot, pd.DataFrame(grand_total_row).T])
+            else:
+                channel_pivot_with_total = channel_pivot
+
+            st.write("#### Ticket Channel Breakdown by Month")
+            st.dataframe(channel_pivot_with_total.style.format("{:.0f}"))
+
+            # Prepare data for chart (melted), including the grand total as requested
+            chart_data_melted = channel_pivot_with_total.reset_index().rename(columns={'index': 'Channel'}).melt(id_vars='Channel', var_name='YearMonth', value_name='Tickets')
+
+            fig_channel_breakdown = px.bar(chart_data_melted, 
+                                           x='YearMonth', 
+                                           y='Tickets', 
+                                           color='Channel',
+                                           title='Monthly Ticket Volume by Channel',
+                                           labels={'Tickets': 'Number of Tickets', 'YearMonth': 'Month'},
+                                           barmode='group')
+            fig_channel_breakdown.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_channel_breakdown, use_container_width=True)
+        else:
+            st.info("No ticket data available for the selected filters to create a channel breakdown.")
+    else:
+        st.info("No data available to display channel breakdown. Check if 'Channel' column exists and data is loaded.")
+    
+    st.markdown("---")
+
     st.markdown("### Channel and Location Distribution")
     with st.popover("❓"):
         st.markdown("""
