@@ -86,6 +86,13 @@ COL_TASK_TYPE = "Task Type"
 COL_ENHANCEMENT = "Enhancement"
 COL_ENH_RESULT = "ENH Result"
 
+# --- UI & Label Constants ----------------------------------------------
+LABEL_SLA_COMPLIANCE_RATE = "SLA Compliance Rate"
+LOCATION_TYPE_MINING_SITE = "Mining Site"
+LABEL_RESOLUTION_TIME_HOURS = "Resolution Time (Hours)"
+CHANNEL_AUTO_GEN = "Auto-Generated Event"
+LABEL_TICKET_VOLUME = "Ticket Volume"
+
 # --- Filename Constant -------------------------------------------------
 DEFAULT_CSV_FILE = "tcd.csv"
 
@@ -156,8 +163,8 @@ def load_data(file):
     
     return df
 
-def render_overview_tab(filtered_df):
-    """Renders the content for the Overview tab."""
+def _render_monthly_trends(filtered_df):
+    """Render monthly ticket trends chart and analysis."""
     st_header_with_popover(
         "Monthly Ticket Trends",
         """
@@ -176,85 +183,100 @@ def render_overview_tab(filtered_df):
     
     fig1 = px.line(monthly_tickets, x=COL_YEAR_MONTH, y="Tickets",
                    markers=True, 
-                   title="Monthly Ticket Volume Trend",
+                   title=f"Monthly {LABEL_TICKET_VOLUME} Trend",
                    labels={"Tickets": "Number of Tickets", COL_YEAR_MONTH: "Month"})
     fig1.update_xaxes(tickangle=45)
     st.plotly_chart(fig1, use_container_width=True)
     
-    # Monthly Trends Insights
-    if len(monthly_tickets) > 1:
-        st.write("#### Monthly Volume Insights")
+    return monthly_tickets
+
+def _render_monthly_insights(monthly_tickets):
+    """Render monthly volume insights and trend analysis."""
+    if len(monthly_tickets) <= 1:
+        return
         
-        latest_month = monthly_tickets.iloc[-1]
-        previous_month = monthly_tickets.iloc[-2] if len(monthly_tickets) > 1 else None
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if previous_month is not None:
-                current_tickets = latest_month['Tickets']
-                previous_tickets = previous_month['Tickets']
-                current_month_name = latest_month[COL_YEAR_MONTH]
-                previous_month_name = previous_month[COL_YEAR_MONTH]
+    st.write("#### Monthly Volume Insights")
+    
+    latest_month = monthly_tickets.iloc[-1]
+    previous_month = monthly_tickets.iloc[-2] if len(monthly_tickets) > 1 else None
+    
+    col1, col2 = st.columns(2)
+    _render_month_to_month_comparison(col1, latest_month, previous_month)
+    _render_quarterly_trend_analysis(col2, monthly_tickets)
+
+def _render_month_to_month_comparison(col, latest_month, previous_month):
+    """Render month-to-month comparison analysis."""
+    with col:
+        if previous_month is not None:
+            current_tickets = latest_month['Tickets']
+            previous_tickets = previous_month['Tickets']
+            current_month_name = latest_month[COL_YEAR_MONTH]
+            previous_month_name = previous_month[COL_YEAR_MONTH]
+            
+            # Always show actual numbers with percentage when meaningful
+            if previous_tickets >= 1:  # Calculate percentage for any baseline
+                month_change = ((current_tickets - previous_tickets) / previous_tickets * 100)
                 
-                # Always show actual numbers with percentage when meaningful
-                if previous_tickets >= 1:  # Calculate percentage for any baseline
-                    month_change = ((current_tickets - previous_tickets) / previous_tickets * 100)
-                    
-                    if month_change > 300:
-                        st.warning(f"📈 **Major Spike**: {current_tickets} vs {previous_tickets} tickets (>300% increase) - {current_month_name} vs {previous_month_name}")
-                    elif month_change > 25:
-                        st.warning(f"📈 **Volume Spike**: {current_tickets} vs {previous_tickets} tickets (+{month_change:.1f}%) - {current_month_name} vs {previous_month_name}")
-                    elif month_change < -25:
-                        st.success(f"📉 **Volume Drop**: {current_tickets} vs {previous_tickets} tickets ({month_change:.1f}%) - {current_month_name} vs {previous_month_name}")
-                    else:
-                        st.info(f"📊 **Month Change**: {current_tickets} vs {previous_tickets} tickets ({month_change:.1f}%) - {current_month_name} vs {previous_month_name}")
+                if month_change > 300:
+                    st.warning(f"📈 **Major Spike**: {current_tickets} vs {previous_tickets} tickets (>300% increase) - {current_month_name} vs {previous_month_name}")
+                elif month_change > 25:
+                    st.warning(f"📈 **Volume Spike**: {current_tickets} vs {previous_tickets} tickets (+{month_change:.1f}%) - {current_month_name} vs {previous_month_name}")
+                elif month_change < -25:
+                    st.success(f"📉 **Volume Drop**: {current_tickets} vs {previous_tickets} tickets ({month_change:.1f}%) - {current_month_name} vs {previous_month_name}")
                 else:
-                    # Show raw numbers when percentage isn't meaningful
-                    change_abs = current_tickets - previous_tickets
-                    if change_abs > 0:
-                        st.info(f"📈 **Month Change**: {current_tickets} vs {previous_tickets} tickets (+{change_abs}) - {current_month_name} vs {previous_month_name}")
-                    elif change_abs < 0:
-                        st.info(f"📉 **Month Change**: {current_tickets} vs {previous_tickets} tickets ({change_abs}) - {current_month_name} vs {previous_month_name}")
-                    else:
-                        st.info(f"📊 **Month Change**: {current_tickets} tickets (unchanged) - {current_month_name}")
+                    st.info(f"📊 **Month Change**: {current_tickets} vs {previous_tickets} tickets ({month_change:.1f}%) - {current_month_name} vs {previous_month_name}")
             else:
-                # When only one month available, show that month's data
-                current_tickets = latest_month['Tickets']
-                current_month_name = latest_month[COL_YEAR_MONTH]
-                st.info(f"📊 **Single Month**: {current_tickets} tickets ({current_month_name}) - need previous month for comparison")
-        
-        with col2:
-            # Calculate quarterly trend using recent vs previous quarters
-            if len(monthly_tickets) >= 6:
-                # Compare most recent 3 months vs previous 3 months (not first 3 months)
-                recent_3_months = monthly_tickets.tail(3)['Tickets'].mean()
-                previous_3_months = monthly_tickets.iloc[-6:-3]['Tickets'].mean()  # 3 months before the recent 3
+                # Show raw numbers when percentage isn't meaningful
+                change_abs = current_tickets - previous_tickets
+                if change_abs > 0:
+                    st.info(f"📈 **Month Change**: {current_tickets} vs {previous_tickets} tickets (+{change_abs}) - {current_month_name} vs {previous_month_name}")
+                else:
+                    st.info(f"📉 **Month Change**: {current_tickets} vs {previous_tickets} tickets ({change_abs}) - {current_month_name} vs {previous_month_name}")
+        else:
+            st.metric("Latest Month", f"{latest_month['Tickets']} tickets")
+
+def _render_quarterly_trend_analysis(col, monthly_tickets):
+    """Render quarterly trend analysis."""
+    with col:
+        # Calculate quarterly trend using recent vs previous quarters
+        if len(monthly_tickets) >= 6:
+            # Compare most recent 3 months vs previous 3 months (not first 3 months)
+            recent_3_months = monthly_tickets.tail(3)['Tickets'].mean()
+            previous_3_months = monthly_tickets.iloc[-6:-3]['Tickets'].mean()  # 3 months before the recent 3
+            
+            # Get month names for context (needed in both branches)
+            recent_period = f"{monthly_tickets.iloc[-3]['YearMonth']} to {monthly_tickets.iloc[-1]['YearMonth']}"
+            
+            if previous_3_months > 0:
+                trend_change = ((recent_3_months - previous_3_months) / previous_3_months * 100)
                 
-                if previous_3_months > 0:
-                    trend_change = ((recent_3_months - previous_3_months) / previous_3_months * 100)
-                    
-                    # Get month names for context
-                    recent_period = f"{monthly_tickets.iloc[-3]['YearMonth']} to {monthly_tickets.iloc[-1]['YearMonth']}"
-                    previous_period = f"{monthly_tickets.iloc[-6]['YearMonth']} to {monthly_tickets.iloc[-4]['YearMonth']}"
-                    
-                    # Show quarterly comparison with context
-                    if trend_change > 50:
-                        st.warning(f"📈 **Quarterly Growth**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg (+{trend_change:.1f}%) - {recent_period} vs {previous_period}")
-                    elif trend_change > 15:
-                        st.info(f"📈 **Quarterly Trend**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg (+{trend_change:.1f}%) - {recent_period} vs {previous_period}")
-                    elif trend_change < -15:
-                        st.success(f"📉 **Quarterly Decline**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg ({trend_change:.1f}%) - {recent_period} vs {previous_period}")
-                    else:
-                        st.info(f"📊 **Quarterly Stable**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg ({trend_change:.1f}%) - {recent_period} vs {previous_period}")
+                # Get previous period for comparison
+                previous_period = f"{monthly_tickets.iloc[-6]['YearMonth']} to {monthly_tickets.iloc[-4]['YearMonth']}"
+                
+                # Show quarterly comparison with context
+                if trend_change > 50:
+                    st.warning(f"📈 **Quarterly Growth**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg (+{trend_change:.1f}%) - {recent_period} vs {previous_period}")
+                elif trend_change > 15:
+                    st.info(f"📈 **Quarterly Trend**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg (+{trend_change:.1f}%) - {recent_period} vs {previous_period}")
+                elif trend_change < -15:
+                    st.success(f"📉 **Quarterly Decline**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg ({trend_change:.1f}%) - {recent_period} vs {previous_period}")
                 else:
-                    st.info(f"📊 **Recent Quarter**: {recent_3_months:.0f} tickets/month avg ({recent_period})")
-            elif len(monthly_tickets) >= 3:
-                # For 3-5 months, just show recent average with period
-                recent_avg = monthly_tickets.tail(3)['Tickets'].mean()
-                period = f"{monthly_tickets.iloc[-3]['YearMonth']} to {monthly_tickets.iloc[-1]['YearMonth']}"
-                st.info(f"📊 **Recent Quarter**: {recent_avg:.0f} tickets/month avg ({period})")
+                    st.info(f"📊 **Quarterly Stable**: {recent_3_months:.0f} vs {previous_3_months:.0f} tickets/month avg ({trend_change:.1f}%) - {recent_period} vs {previous_period}")
             else:
-                st.info("📊 **Trend Analysis**: Need at least 3 months of data")
+                st.info(f"📊 **Recent Quarter**: {recent_3_months:.0f} tickets/month avg ({recent_period})")
+        elif len(monthly_tickets) >= 3:
+            # For 3-5 months, just show recent average with period
+            recent_avg = monthly_tickets.tail(3)['Tickets'].mean()
+            period = f"{monthly_tickets.iloc[-3]['YearMonth']} to {monthly_tickets.iloc[-1]['YearMonth']}"
+            st.info(f"📊 **Recent Quarter**: {recent_avg:.0f} tickets/month avg ({period})")
+        else:
+            st.info("📊 **Trend Analysis**: Need at least 3 months of data")
+
+def render_overview_tab(filtered_df):
+    """Renders the content for the Overview tab."""
+    monthly_tickets = _render_monthly_trends(filtered_df)
+    _render_monthly_insights(monthly_tickets)
+    
 
     # Service Category Risk Management
     st_header_with_popover(
@@ -487,7 +509,7 @@ def render_buma_sla_tab(filtered_df):
         x="Priority", 
         y="Resolution_Compliance",
         title="Resolution SLA Compliance by Priority",
-        labels={"Resolution_Compliance": "SLA Compliance Rate"},
+        labels={"Resolution_Compliance": LABEL_SLA_COMPLIANCE_RATE},
         text=perf_df["Resolution_Compliance"].map("{:.1%}".format)
     )
     
@@ -874,7 +896,7 @@ def render_performance_tab(filtered_df):
     fig2 = px.bar(sla_compliance, x=COL_PRIORITY, y="SLA_Compliance",
                   text=sla_compliance["SLA_Compliance"].map("{:.1%}".format),
                   title="SLA Compliance by Priority Level",
-                  labels={"SLA_Compliance": "SLA Compliance Rate"})
+                  labels={"SLA_Compliance": LABEL_SLA_COMPLIANCE_RATE})
     fig2.update_layout(yaxis_tickformat=".0%")
     fig2.update_traces(textposition="outside")
     st.plotly_chart(fig2, use_container_width=True)
@@ -923,7 +945,7 @@ def render_performance_tab(filtered_df):
     top_groups = group_perf.head(15)
 
     st_subheader_with_popover(
-        "Top 15 Assignment Groups by Ticket Volume",
+        f"Top 15 Assignment Groups by {LABEL_TICKET_VOLUME}",
         """
         **Purpose**: Identify teams handling the most tickets to understand workload distribution.
         
@@ -932,7 +954,7 @@ def render_performance_tab(filtered_df):
     )
     fig3 = px.bar(top_groups, x=COL_ASSIGNMENT_GROUP, y="Tickets",
                   text_auto=True,
-                  title="Top 15 Assignment Groups by Ticket Volume")
+                  title=f"Top 15 Assignment Groups by {LABEL_TICKET_VOLUME}")
     fig3.update_xaxes(tickangle=45)
     st.plotly_chart(fig3, use_container_width=True)
 
@@ -952,145 +974,9 @@ def render_performance_tab(filtered_df):
                       size="Tickets", hover_name=COL_ASSIGNMENT_GROUP,
                       title="Assignment Group Performance: Resolution Time vs SLA Compliance",
                       labels={"Avg_Resolution_Hours": "Average Resolution Hours", 
-                             "SLA_Compliance": "SLA Compliance Rate"})
+                             "SLA_Compliance": LABEL_SLA_COMPLIANCE_RATE})
     fig4.update_layout(yaxis_tickformat=".0%")
     st.plotly_chart(fig4, use_container_width=True)
-
-    # Tower Performance Analysis (Enhanced with TCD data)
-    if COL_TOWER in filtered_df.columns:
-        st_header_with_popover(
-            "Tower Performance Analysis",
-            """
-            **Purpose**: Analyze performance across organizational towers for strategic resource allocation.
-            
-            **Towers**:
-            - **IO (Infrastructure Operations)**: Server, network, infrastructure incidents
-            - **AO (Application Operations)**: SAP, business application issues  
-            - **L3 (Level 3 Support)**: Complex technical escalations
-            - **Others**: Service Desk, WFS, Cloud, specialized teams
-            
-            **Key Insights**:
-            - Tower workload distribution and capacity planning
-            - Performance benchmarking across service areas
-            - Resource allocation optimization opportunities
-            """
-        )
-        
-        # Calculate tower performance metrics
-        tower_perf = (
-            filtered_df.groupby(COL_TOWER)
-            .agg(
-                Tickets=(COL_NUMBER, "count"),
-                Avg_Resolution_Hours=(COL_RESOLUTION_HOURS, "mean"),
-                SLA_Compliance=(COL_SLA_MET, "mean")
-            )
-            .reset_index()
-            .sort_values("Tickets", ascending=False)
-        )
-        
-        # Filter out invalid/missing tower values
-        tower_perf = tower_perf[
-            (~tower_perf[COL_TOWER].isin(['#N/A', '', ' '])) & 
-            (tower_perf[COL_TOWER].notna())
-        ]
-        
-        if len(tower_perf) > 0:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st_subheader_with_popover(
-                    "Tower Workload Distribution",
-                    """
-                    **Purpose**: Understand organizational workload distribution for resource planning.
-                    
-                    **Tower Definitions**:
-                    - **IO**: Infrastructure Operations (servers, networks, storage)
-                    - **AO**: Application Operations (SAP, business applications)
-                    - **L3**: Level 3 Support (complex escalations, specialized expertise)
-                    
-                    **Key Insights**: Uneven distribution may indicate need for resource rebalancing or skill development.
-                    """
-                )
-                fig_tower_volume = px.pie(
-                    tower_perf, 
-                    names=COL_TOWER, 
-                    values="Tickets",
-                    title="Ticket Distribution by Tower"
-                )
-                st.plotly_chart(fig_tower_volume, use_container_width=True)
-            
-            with col2:
-                st_subheader_with_popover(
-                    "Tower SLA Performance",
-                    """
-                    **Purpose**: Compare SLA compliance across organizational towers to identify performance gaps.
-                    
-                    **Graph Explanation**: Bar chart showing SLA compliance percentage by tower. Higher bars indicate better performance. Text labels show exact compliance rates.
-                    
-                    **Key Insights**: Towers with low compliance may need additional resources, training, or process improvements.
-                    """
-                )
-                fig_tower_sla = px.bar(
-                    tower_perf, 
-                    x=COL_TOWER, 
-                    y="SLA_Compliance",
-                    title="SLA Compliance by Tower",
-                    text=tower_perf["SLA_Compliance"].map("{:.1%}".format)
-                )
-                fig_tower_sla.update_layout(yaxis_tickformat=".0%")
-                fig_tower_sla.update_traces(textposition="outside")
-                fig_tower_sla.update_xaxes(tickangle=45)
-                st.plotly_chart(fig_tower_sla, use_container_width=True)
-            
-            st_subheader_with_popover(
-                "Detailed Tower Performance",
-                """
-                **Purpose**: Comprehensive tower metrics for strategic planning and performance management.
-                
-                **Columns Explained**:
-                - **Tickets**: Total volume handled by each tower
-                - **Avg_Resolution_Hours**: Average time to resolve (efficiency indicator)
-                - **SLA_Compliance**: Percentage meeting SLA targets (quality indicator)
-                
-                **Use Case**: Identify high-performing towers for best practice sharing and underperforming areas for improvement focus.
-                """
-            )
-            tower_display = tower_perf.copy()
-            if 'SLA_Compliance' in tower_display.columns:
-                tower_display['SLA_Compliance'] = tower_display['SLA_Compliance'].map('{:.1%}'.format)
-            tower_display = tower_display.round(2)
-            st.dataframe(tower_display, use_container_width=True)
-            
-            # Tower Performance Insights
-            st.write("#### Tower Performance Insights")
-            if len(tower_perf) > 0:
-                best_tower = tower_perf.loc[tower_perf['SLA_Compliance'].idxmax()]
-                worst_tower = tower_perf.loc[tower_perf['SLA_Compliance'].idxmin()]
-                highest_volume = tower_perf.loc[tower_perf['Tickets'].idxmax()]
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.success(f"🏆 **Top Performer**: {best_tower[COL_TOWER]} ({best_tower['SLA_Compliance']:.1%} SLA)")
-                with col2:
-                    if worst_tower['SLA_Compliance'] < 0.85:
-                        st.warning(f"⚠️ **Needs Attention**: {worst_tower[COL_TOWER]} ({worst_tower['SLA_Compliance']:.1%} SLA)")
-                    else:
-                        st.info(f"📊 **Monitor**: {worst_tower[COL_TOWER]} ({worst_tower['SLA_Compliance']:.1%} SLA)")
-                with col3:
-                    st.info(f"📈 **Highest Volume**: {highest_volume[COL_TOWER]} ({highest_volume['Tickets']:,} tickets)")
-                
-                # Strategic recommendations
-                avg_sla = tower_perf['SLA_Compliance'].mean()
-                if avg_sla < 0.90:
-                    st.warning("⚠️ **Strategic Alert**: Overall tower SLA performance below 90% - consider resource rebalancing")
-                
-                workload_imbalance = tower_perf['Tickets'].std() / tower_perf['Tickets'].mean()
-                if workload_imbalance > 0.5:
-                    st.info("📊 **Insight**: High workload variation across towers - consider redistribution for efficiency")
-        else:
-            st.info("No valid tower data available for analysis")
-    else:
-        st.info("Tower analysis not available - requires Tower column in data")
 
     # Geographic Service Delivery Analysis
     st_header_with_popover(
@@ -1136,12 +1022,19 @@ def render_performance_tab(filtered_df):
         # Identify mining sites and key locations
         location_perf = location_perf.copy()  # Create explicit copy to avoid warnings
         mining_sites = ["Meandu", "Blackwater", "Goonyella", "Saraji", "Goonyella North", "Commodore", "Burton Complex"]
-        location_perf["Location_Type"] = location_perf[COL_LOCATION].apply(
-            lambda x: "Mining Site" if x in mining_sites 
-            else "HQ" if x == "Brisbane" 
-            else "Regional" if x in ["Australia East", "Philippines", "Australia", "Australia Southeast"]
-            else "Other"
-        )
+        
+        def classify_location(location):
+            """Classify location into type categories."""
+            if location in mining_sites:
+                return LOCATION_TYPE_MINING_SITE
+            elif location == "Brisbane":
+                return "HQ"
+            elif location in ["Australia East", "Philippines", "Australia", "Australia Southeast"]:
+                return "Regional"
+            else:
+                return "Other"
+        
+        location_perf["Location_Type"] = location_perf[COL_LOCATION].apply(classify_location)
         
         col1, col2 = st.columns(2)
         
@@ -1152,11 +1045,11 @@ def render_performance_tab(filtered_df):
                 top_locations, 
                 x="Tickets", 
                 y=COL_LOCATION,
-                title="Ticket Volume by Location",
+                title=f"{LABEL_TICKET_VOLUME} by Location",
                 text="Tickets",
                 color="Location_Type",
                 color_discrete_map={
-                    "Mining Site": "#ff6b6b", 
+                    LOCATION_TYPE_MINING_SITE: "#ff6b6b", 
                     "HQ": "#4ecdc4", 
                     "Regional": "#45b7d1", 
                     "Other": "#96ceb4"
@@ -1192,7 +1085,7 @@ def render_performance_tab(filtered_df):
             st.plotly_chart(fig_loc_sla, use_container_width=True)
         
         # Mining Sites Deep Dive
-        mining_locations = location_perf[location_perf["Location_Type"] == "Mining Site"].copy()
+        mining_locations = location_perf[location_perf["Location_Type"] == LOCATION_TYPE_MINING_SITE].copy()
         if len(mining_locations) > 0:
             st.write("#### Mining Sites Performance Dashboard")
             
@@ -1218,30 +1111,7 @@ def render_performance_tab(filtered_df):
                 st.metric("Avg Mining SLA Compliance", f"{avg_mining_sla:.1%}")
             with col3:
                 st.metric("Avg Resolution Time", f"{avg_resolution_hours:.1f}h")
-            
-            if avg_mining_sla < 0.90:
-                st.warning("⚠️ **Mining Site Alert**: SLA compliance below 90% minimum - may impact operations")
-            else:
-                st.success("✅ **Mining Operations**: SLA compliance within acceptable range")
-            
-            # Additional Mining Site Insights
-            if len(mining_locations) > 1:
-                best_mining_site = mining_locations.loc[mining_locations['SLA_Compliance'].idxmax()]
-                worst_mining_site = mining_locations.loc[mining_locations['SLA_Compliance'].idxmin()]
-                fastest_site = mining_locations.loc[mining_locations['Avg_Resolution_Hours'].idxmin()]
-                
-                st.write("#### Mining Site Performance Analysis")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.success(f"🏆 **Best SLA Performance**: {best_mining_site[COL_LOCATION]} ({best_mining_site['SLA_Compliance']:.1%})")
-                with col2:
-                    if worst_mining_site['SLA_Compliance'] < 0.85:
-                        st.warning(f"⚠️ **Site Alert**: {worst_mining_site[COL_LOCATION]} ({worst_mining_site['SLA_Compliance']:.1%}) - below target")
-                    else:
-                        st.info(f"📊 **Monitor**: {worst_mining_site[COL_LOCATION]} ({worst_mining_site['SLA_Compliance']:.1%}) - lowest SLA")
-                with col3:
-                    st.info(f"⚡ **Fastest Resolution**: {fastest_site[COL_LOCATION]} ({fastest_site['Avg_Resolution_Hours']:.1f}h avg)")
-        
+                    
         st_subheader_with_popover(
             "Complete Geographic Performance",
             """
@@ -1299,7 +1169,7 @@ def render_performance_tab(filtered_df):
         priority_order = sorted([p for p in resolution_filtered[COL_PRIORITY].unique() if pd.notna(p)])
         fig7 = px.box(resolution_filtered, x=COL_PRIORITY, y=COL_RESOLUTION_HOURS,
                       title="Resolution Time Distribution by Priority",
-                      labels={COL_RESOLUTION_HOURS: "Resolution Time (Hours)"},
+                      labels={COL_RESOLUTION_HOURS: LABEL_RESOLUTION_TIME_HOURS},
                       category_orders={COL_PRIORITY: priority_order})
         st.plotly_chart(fig7, use_container_width=True)
     with col2:
@@ -1319,7 +1189,7 @@ def render_performance_tab(filtered_df):
         
         fig8 = px.box(channel_filtered, x=COL_CHANNEL, y=COL_RESOLUTION_HOURS,
                       title="Resolution Time by Top 5 Channels",
-                      labels={COL_RESOLUTION_HOURS: "Resolution Time (Hours)"},
+                      labels={COL_RESOLUTION_HOURS: LABEL_RESOLUTION_TIME_HOURS},
                       category_orders={COL_CHANNEL: top_channels})
         
         # Word wrap long channel names, specifically "Auto-Generated Event"
@@ -1327,8 +1197,8 @@ def render_performance_tab(filtered_df):
             tickangle=0,
             tickmode='array',
             tickvals=list(range(len(top_channels))),
-            ticktext=[channel.replace('Auto-Generated Event', 'Auto-<br>Generated<br>Event') 
-                     if 'Auto-Generated Event' in channel else channel 
+            ticktext=[channel.replace(CHANNEL_AUTO_GEN, 'Auto-<br>Generated<br>Event') 
+                     if CHANNEL_AUTO_GEN in channel else channel 
                      for channel in top_channels]
         )
         st.plotly_chart(fig8, use_container_width=True)
@@ -1356,7 +1226,7 @@ def render_performance_tab(filtered_df):
         .head(20)
     )
     st_subheader_with_popover(
-        "Top 20 Assignees by Ticket Volume",
+        f"Top 20 Assignees by {LABEL_TICKET_VOLUME}",
         """
         **Purpose**: Individual performance analysis and workload distribution.
         
@@ -1373,36 +1243,6 @@ def render_performance_tab(filtered_df):
     assignee_display = assignee_display.round(2)
     st.dataframe(assignee_display)
     
-    # Top Assignee Performance Insights
-    if len(assignee_perf) > 0:
-        st.write("#### Individual Performance Insights")
-        
-        # Find top performers
-        high_volume_assignees = assignee_perf[assignee_perf['Tickets'] >= assignee_perf['Tickets'].quantile(0.75)]
-        top_sla_performers = assignee_perf[assignee_perf['SLA_Compliance'] >= 0.95]
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if len(top_sla_performers) > 0:
-                top_performer = top_sla_performers.iloc[0][COL_ASSIGNED_TO]
-                top_sla = top_sla_performers.iloc[0]['SLA_Compliance']
-                st.success(f"🌟 **Top SLA Performer**: {top_performer} ({top_sla:.1%})")
-            
-        with col2:
-            if len(high_volume_assignees) > 0:
-                high_volume_performer = high_volume_assignees.iloc[0][COL_ASSIGNED_TO]
-                volume = high_volume_assignees.iloc[0]['Tickets']
-                st.info(f"📊 **Highest Volume**: {high_volume_performer} ({volume:,} tickets)")
-        
-        # Workload distribution analysis
-        avg_tickets = assignee_perf['Tickets'].mean()
-        std_tickets = assignee_perf['Tickets'].std()
-        cv = std_tickets / avg_tickets if avg_tickets > 0 else 0
-        
-        if cv > 0.5:
-            st.warning("⚠️ **Workload Imbalance**: High variation in ticket assignments - consider workload redistribution")
-        else:
-            st.success("✅ **Balanced Workload**: Relatively even ticket distribution across assignees")
 
 def render_categorical_tab(filtered_df):
     """Renders the content for the Categorical Analysis tab."""
@@ -1425,7 +1265,7 @@ def render_categorical_tab(filtered_df):
         channel_counts = filtered_df[COL_CHANNEL].value_counts()
         
         # Show debug info for key channels
-        key_channels = ['Auto-Generated Event', 'Support Team', 'Walk-in', 'Email', 'Phone']
+        key_channels = [CHANNEL_AUTO_GEN, 'Support Team', 'Walk-in', 'Email', 'Phone']
         channel_info = []
         for ch in key_channels:
             count = channel_counts.get(ch, 0)
@@ -1477,7 +1317,7 @@ def render_categorical_tab(filtered_df):
                                            x=COL_YEAR_MONTH, 
                                            y='Tickets', 
                                            color=COL_CHANNEL,
-                                           title='Monthly Ticket Volume by Channel',
+                                           title=f'Monthly {LABEL_TICKET_VOLUME} by Channel',
                                            labels={'Tickets': 'Number of Tickets', COL_YEAR_MONTH: 'Month'},
                                            barmode='group')
             fig_channel_breakdown.update_xaxes(tickangle=45)
@@ -1523,7 +1363,7 @@ def render_categorical_tab(filtered_df):
         )
         location_dist = filtered_df.groupby(COL_LOCATION).size().reset_index(name="Tickets").nlargest(10, 'Tickets')
         fig6 = px.bar(location_dist, x=COL_LOCATION, y="Tickets",
-                      title="Top 10 Locations by Ticket Volume")
+                      title=f"Top 10 Locations by {LABEL_TICKET_VOLUME}")
         fig6.update_xaxes(tickangle=45)
         st.plotly_chart(fig6, use_container_width=True)
 
@@ -1706,45 +1546,6 @@ def render_categorical_tab(filtered_df):
             task_display = task_display.round(2)
             st.dataframe(task_display, use_container_width=True)
             
-            # Insights based on actual data
-            incident_count = task_type_summary[task_type_summary[COL_TASK_TYPE] == "INCIDENT"]["Count"].sum()
-            request_count = task_type_summary[task_type_summary[COL_TASK_TYPE] == "REQUEST"]["Count"].sum()
-            
-            st.info(f"📊 **Workload Composition**: {incident_count:,} incidents vs {request_count:,} service requests - useful for separate SLA tracking")
-            
-            # Task Type Strategic Insights
-            if len(task_type_summary) > 0:
-                st.write("#### Task Type Strategic Insights")
-                
-                # Workload balance analysis
-                incident_pct = (incident_count / total_valid_tickets * 100) if total_valid_tickets > 0 else 0
-                request_pct = (request_count / total_valid_tickets * 100) if total_valid_tickets > 0 else 0
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if incident_pct > 70:
-                        st.warning(f"⚠️ **High Incident Load**: {incident_pct:.1f}% incidents - may indicate infrastructure issues")
-                    elif incident_pct < 30:
-                        st.info(f"✅ **Stable Environment**: {incident_pct:.1f}% incidents - good operational health")
-                    else:
-                        st.info(f"📊 **Balanced Load**: {incident_pct:.1f}% incidents vs {request_pct:.1f}% requests")
-                
-                with col2:
-                    # SLA performance by task type
-                    incident_sla = task_type_summary[task_type_summary[COL_TASK_TYPE] == "INCIDENT"]["SLA_Compliance"]
-                    request_sla = task_type_summary[task_type_summary[COL_TASK_TYPE] == "REQUEST"]["SLA_Compliance"]
-                    
-                    if len(incident_sla) > 0 and len(request_sla) > 0:
-                        if incident_sla.iloc[0] < request_sla.iloc[0] - 0.1:
-                            st.warning("⚠️ **Incident SLA Gap**: Incidents underperforming vs requests - check resolution processes")
-                        elif request_sla.iloc[0] < incident_sla.iloc[0] - 0.1:
-                            st.info("📊 **Request Optimization**: Service requests may need process streamlining")
-                        else:
-                            st.success("✅ **Balanced Performance**: Similar SLA performance across task types")
-        else:
-            st.info("No valid task type data available for analysis")
-    else:
-        st.info("Task type analysis not available - requires Task Type column in data")
 
     # Channel Efficiency Analysis
     st_header_with_popover(
@@ -1794,16 +1595,22 @@ def render_categorical_tab(filtered_df):
             channel_efficiency["Percentage"] = (channel_efficiency["Tickets"] / total_channel_tickets * 100).round(1)
             
             # Categorize channels for analysis
-            automated_channels = ["Auto-Generated Event"]
+            automated_channels = [CHANNEL_AUTO_GEN]
             human_channels = ["Email", "Phone", "Walk-in", "Instant Messaging/Chat"]
             self_service_channels = ["Self-service"]
             
-            channel_efficiency["Channel_Type"] = channel_efficiency[COL_CHANNEL].apply(
-                lambda x: "Automated" if x in automated_channels
-                else "Self-Service" if x in self_service_channels
-                else "Human-Assisted" if x in human_channels
-                else "Other"
-            )
+            def classify_channel(channel):
+                """Classify channel into type categories."""
+                if channel in automated_channels:
+                    return "Automated"
+                elif channel in self_service_channels:
+                    return "Self-Service"
+                elif channel in human_channels:
+                    return "Human-Assisted"
+                else:
+                    return "Other"
+            
+            channel_efficiency["Channel_Type"] = channel_efficiency[COL_CHANNEL].apply(classify_channel)
             
             col1, col2 = st.columns(2)
             
@@ -1855,7 +1662,7 @@ def render_categorical_tab(filtered_df):
                     title="Channel Efficiency: Resolution Time vs SLA Compliance",
                     labels={
                         "Avg_Resolution_Hours": "Average Resolution Hours",
-                        "SLA_Compliance": "SLA Compliance Rate"
+                        "SLA_Compliance": LABEL_SLA_COMPLIANCE_RATE
                     },
                     color="Channel_Type",
                     color_discrete_map={
@@ -1897,7 +1704,7 @@ def render_categorical_tab(filtered_df):
             st.dataframe(channel_type_summary, use_container_width=True)
             
             # Channel insights and recommendations
-            auto_generated = channel_efficiency[channel_efficiency[COL_CHANNEL] == "Auto-Generated Event"]
+            auto_generated = channel_efficiency[channel_efficiency[COL_CHANNEL] == CHANNEL_AUTO_GEN]
             email_channel = channel_efficiency[channel_efficiency[COL_CHANNEL] == "Email"]
             self_service = channel_efficiency[channel_efficiency[COL_CHANNEL] == "Self-service"]
             
@@ -1926,38 +1733,7 @@ def render_categorical_tab(filtered_df):
                         ss_sla = self_service.iloc[0]["SLA_Compliance"]
                         st.metric("Self-Service", f"{ss_tickets:,}", 
                                 f"{ss_sla:.1%} SLA")
-                
-                # Provide optimization recommendations
-                if auto_sla > email_sla:
-                    st.info("💡 **Insight**: Auto-generated events have higher SLA compliance - consider automation opportunities")
-                else:
-                    st.info("💡 **Insight**: Human channels outperforming automation - review auto-generated event handling")
-                
-                if len(self_service) > 0:
-                    ss_percentage = (self_service.iloc[0]["Tickets"] / total_channel_tickets * 100)
-                    if ss_percentage < 5:
-                        st.warning("📈 **Opportunity**: Self-service adoption is low - consider improving self-service capabilities")
-                
-                # Additional channel efficiency insights
-                st.write("#### Channel Efficiency Recommendations")
-                phone_channel = channel_efficiency[channel_efficiency[COL_CHANNEL] == "Phone"]
-                if len(phone_channel) > 0:
-                    phone_res_time = phone_channel.iloc[0]["Avg_Resolution_Hours"]
-                    email_res_time = email_channel.iloc[0]["Avg_Resolution_Hours"] if len(email_channel) > 0 else 0
-                    
-                    if phone_res_time > email_res_time * 1.5:
-                        st.info("💡 **Insight**: Phone channel has longer resolution times - consider phone triage or escalation process")
-                
-                # Volume-based recommendations
-                total_volume = channel_efficiency["Tickets"].sum()
-                high_volume_channels = channel_efficiency[channel_efficiency["Tickets"] > total_volume * 0.1]
-                
-                if len(high_volume_channels) > 0:
-                    low_sla_channels = high_volume_channels[high_volume_channels["SLA_Compliance"] < 0.85]
-                    if len(low_sla_channels) > 0:
-                        problematic_channels = ", ".join(low_sla_channels[COL_CHANNEL].tolist())
-                        st.warning(f"⚠️ **Priority Action**: High-volume channels with poor SLA: {problematic_channels}")
-            
+                            
             st_subheader_with_popover(
                 "Detailed Channel Performance",
                 """
@@ -2015,7 +1791,7 @@ def render_categorical_tab(filtered_df):
                     y=COL_RESOLUTION_HOURS,
                     title="Resolution Time Distribution by Top 6 Channels",
                     labels={
-                        COL_RESOLUTION_HOURS: "Resolution Time (Hours)",
+                        COL_RESOLUTION_HOURS: LABEL_RESOLUTION_TIME_HOURS,
                         COL_CHANNEL: "Submission Channel"
                     },
                     color=COL_CHANNEL
@@ -2024,70 +1800,6 @@ def render_categorical_tab(filtered_df):
                 fig_channel_box.update_layout(height=500)
                 st.plotly_chart(fig_channel_box, use_container_width=True)
                 
-                # Channel distribution insights based on box plot
-                st.write("#### Channel Distribution Insights")
-                
-                channel_stats = []
-                for channel in top_channels_for_plot:
-                    channel_data = channel_plot_data[channel_plot_data[COL_CHANNEL] == channel][COL_RESOLUTION_HOURS]
-                    if len(channel_data) >= 5:  # Need enough data for meaningful stats
-                        median_time = channel_data.median()
-                        q1 = channel_data.quantile(0.25)
-                        q3 = channel_data.quantile(0.75)
-                        iqr = q3 - q1
-                        # Calculate coefficient of variation for consistency
-                        mean_time = channel_data.mean()
-                        std_time = channel_data.std()
-                        
-                        # Consistency score based on coefficient of variation (lower CV = more consistent)
-                        cv = (std_time / mean_time) if mean_time > 0 else 0
-                        consistency_score = max(0, 100 - (cv * 100))  # Cap at 0% minimum
-                        
-                        # Alternative: IQR-based consistency (capped at reasonable bounds)
-                        iqr_ratio = (iqr / median_time) if median_time > 0 else 0
-                        iqr_consistency = max(0, min(100, 100 - (iqr_ratio * 50)))  # Scale down and cap
-                        
-                        channel_stats.append({
-                            'Channel': channel,
-                            'Median_Hours': median_time,
-                            'Mean_Hours': mean_time,
-                            'IQR_Hours': iqr,
-                            'Std_Hours': std_time,
-                            'CV_Ratio': cv,
-                            'Consistency_Score': consistency_score,
-                            'IQR_Consistency': iqr_consistency
-                        })
-                
-                if channel_stats:
-                    stats_df = pd.DataFrame(channel_stats)
-                    
-                    # Find most/least consistent channels
-                    most_consistent = stats_df.loc[stats_df['Consistency_Score'].idxmax()]
-                    least_consistent = stats_df.loc[stats_df['Consistency_Score'].idxmin()]
-                    fastest_median = stats_df.loc[stats_df['Median_Hours'].idxmin()]
-                    
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.success(f"🎯 **Most Consistent**: {most_consistent['Channel']} (median: {most_consistent['Median_Hours']:.1f}h, CV: {most_consistent['CV_Ratio']:.2f})")
-                    
-                    with col2:
-                        st.info(f"⚡ **Fastest Median**: {fastest_median['Channel']} ({fastest_median['Median_Hours']:.1f}h median, {fastest_median['Mean_Hours']:.1f}h avg)")
-                    
-                    with col3:
-                        if least_consistent['Consistency_Score'] < 50:
-                            cv_ratio = least_consistent['CV_Ratio']
-                            st.warning(f"📊 **Variable Performance**: {least_consistent['Channel']} (CV: {cv_ratio:.1f}, consistency: {least_consistent['Consistency_Score']:.0f}%) - high variability")
-                        elif least_consistent['Consistency_Score'] < 70:
-                            st.info(f"📊 **Moderate Variability**: {least_consistent['Channel']} (consistency: {least_consistent['Consistency_Score']:.0f}%)")
-                        else:
-                            st.success(f"📊 **Good Consistency**: All channels show good consistency (lowest: {least_consistent['Consistency_Score']:.0f}%)")
-            else:
-                st.info("Insufficient data for resolution time distribution analysis")
-        else:
-            st.info("No valid channel data available for efficiency analysis")
-    else:
-        st.info("Channel efficiency analysis not available - requires Channel column in data")
 
 # --- Additional Insights Helper Functions -----------------------------
 
@@ -2211,7 +1923,7 @@ def analyze_description_patterns(filtered_df):
                     title='Description Type Performance Analysis',
                     labels={
                         'Avg_Resolution_Hours': 'Average Resolution Hours',
-                        'SLA_Compliance': 'SLA Compliance Rate'
+                        'SLA_Compliance': LABEL_SLA_COMPLIANCE_RATE
                     },
                     color='Tickets',
                     color_continuous_scale='Blues'
@@ -2271,7 +1983,7 @@ def analyze_description_patterns(filtered_df):
                     go.Bar(
                         x=keyword_df['Category'],
                         y=keyword_df['Tickets'],
-                        name='Ticket Volume',
+                        name=LABEL_TICKET_VOLUME,
                         yaxis='y1',
                         marker_color='lightblue',
                         opacity=0.7
@@ -2296,12 +2008,12 @@ def analyze_description_patterns(filtered_df):
                     title='Volume vs Resolution Time by Category',
                     xaxis=dict(title='Category', tickangle=45),
                     yaxis=dict(
-                        title='Ticket Volume',
+                        title=LABEL_TICKET_VOLUME,
                         side='left',
                         color='blue'
                     ),
                     yaxis2=dict(
-                        title='Average Resolution Time (Hours)',
+                        title=f'Average {LABEL_RESOLUTION_TIME_HOURS}',
                         side='right',
                         overlaying='y',
                         color='red'
@@ -2344,7 +2056,7 @@ def analyze_description_patterns(filtered_df):
                 fig_variability.update_layout(
                     title='Average vs Median Resolution Time',
                     xaxis=dict(title='Category', tickangle=45),
-                    yaxis=dict(title='Resolution Time (Hours)'),
+                    yaxis=dict(title=LABEL_RESOLUTION_TIME_HOURS),
                     height=500,
                     hovermode='x unified'
                 )
@@ -2362,9 +2074,9 @@ def analyze_description_patterns(filtered_df):
                 hover_name='Category',
                 title='Category Performance Matrix',
                 labels={
-                    'Tickets': 'Ticket Volume',
-                    'SLA_Compliance': 'SLA Compliance Rate',
-                    'Avg_Resolution_Hours': 'Avg Resolution Time (Hours)'
+                    'Tickets': LABEL_TICKET_VOLUME,
+                    'SLA_Compliance': LABEL_SLA_COMPLIANCE_RATE,
+                    'Avg_Resolution_Hours': f'Avg {LABEL_RESOLUTION_TIME_HOURS}'
                 },
                 color='Avg_Resolution_Hours',
                 color_continuous_scale='RdYlGn_r',
@@ -2395,79 +2107,6 @@ def analyze_description_patterns(filtered_df):
             
             st.plotly_chart(fig_matrix, use_container_width=True)
             
-            # Chart insights based on the visualizations
-            st.write("##### Visual Analysis Insights")
-            
-            # Find interesting patterns from the charts
-            high_volume_low_sla = keyword_df[(keyword_df['Tickets'] > keyword_df['Tickets'].quantile(0.6)) & 
-                                            (keyword_df['SLA_Compliance'] < 0.85)]
-            high_variability = keyword_df[keyword_df['Avg_Resolution_Hours'] > keyword_df['Median_Resolution_Hours'] * 1.5]
-            efficient_categories = keyword_df[(keyword_df['SLA_Compliance'] > 0.90) & 
-                                            (keyword_df['Avg_Resolution_Hours'] < keyword_df['Avg_Resolution_Hours'].median())]
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if len(high_volume_low_sla) > 0:
-                    hvls_list = ", ".join(high_volume_low_sla['Category'].head(2).tolist())
-                    st.error(f"🚨 **Priority Focus**: {hvls_list} - high volume with poor SLA (red quadrant)")
-                else:
-                    st.success("✅ **Volume Performance**: No high-volume categories with poor SLA")
-            
-            with col2:
-                if len(high_variability) > 0:
-                    hv_list = ", ".join(high_variability['Category'].head(2).tolist())
-                    st.warning(f"📊 **High Variability**: {hv_list} - large gap between average and median times")
-                else:
-                    st.success("✅ **Consistent Performance**: Low variability across categories")
-            
-            with col3:
-                if len(efficient_categories) > 0:
-                    eff_list = ", ".join(efficient_categories['Category'].head(2).tolist())
-                    st.success(f"🎆 **Best Practices**: {eff_list} - high SLA with fast resolution")
-                else:
-                    st.info("📊 **Performance**: No standout efficient categories identified")
-            
-            # Generate insights
-            st.write("#### Description Pattern Insights")
-            
-            # Find slow categories
-            slow_categories = keyword_df[keyword_df['Avg_Resolution_Hours'] > keyword_df['Avg_Resolution_Hours'].quantile(0.75)]
-            fast_categories = keyword_df[keyword_df['Avg_Resolution_Hours'] < keyword_df['Avg_Resolution_Hours'].quantile(0.25)]
-            high_volume_slow = keyword_df[(keyword_df['Percentage'] > 5) & (keyword_df['SLA_Compliance'] < 0.85)]
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if len(slow_categories) > 0:
-                    slow_list = ", ".join(slow_categories['Category'].head(3).tolist())
-                    avg_slow_time = slow_categories['Avg_Resolution_Hours'].mean()
-                    st.warning(f"🐌 **Slow Resolution**: {slow_list} (avg: {avg_slow_time:.1f}h) - consider process optimization")
-                else:
-                    st.success("✅ **Consistent Performance**: No significantly slow description types identified")
-            
-            with col2:
-                if len(fast_categories) > 0:
-                    fast_list = ", ".join(fast_categories['Category'].head(3).tolist())
-                    avg_fast_time = fast_categories['Avg_Resolution_Hours'].mean()
-                    st.success(f"⚡ **Fast Resolution**: {fast_list} (avg: {avg_fast_time:.1f}h) - good process examples")
-                else:
-                    st.info("📊 **Balanced Performance**: No standout fast-resolving categories")
-            
-            with col3:
-                if len(high_volume_slow) > 0:
-                    priority_list = ", ".join(high_volume_slow['Category'].head(2).tolist())
-                    st.error(f"🚨 **Priority Focus**: {priority_list} - high volume with poor SLA performance")
-                else:
-                    st.success("✅ **Volume Health**: High-volume categories meeting SLA targets")
-            
-            # Automation recommendations
-            service_requests = keyword_df[keyword_df['Category'].str.contains('Service Request|Access Request', na=False)]
-            if len(service_requests) > 0:
-                sr_volume = service_requests['Percentage'].sum()
-                sr_avg_time = service_requests['Avg_Resolution_Hours'].mean()
-                if sr_volume > 20:
-                    st.info(f"🤖 **Automation Opportunity**: Service/Access requests represent {sr_volume:.1f}% of tickets (avg: {sr_avg_time:.1f}h) - good candidates for self-service portal")
         else:
             st.info("No significant description patterns found for analysis")
     else:
@@ -2487,11 +2126,8 @@ def add_service_category_insights(filtered_df):
         cat_summary = cat_summary.sort_values('Tickets', ascending=False).head(10)
         
         if len(cat_summary) > 0:
-            # Find categories needing attention
-            poor_sla_cats = cat_summary[cat_summary['SLA_Compliance'] < 0.80]
-            high_res_time_cats = cat_summary[cat_summary['Avg_Resolution_Hours'] > cat_summary['Avg_Resolution_Hours'].quantile(0.75)]
-            
             # Service Category Performance Insights section removed as requested
+            pass
 
 # --- Data Quality Tab Helper Functions ---------------------------------
 
@@ -2853,33 +2489,6 @@ with col3:
 with col4:
     overall_sla = filtered_df["SLA_Met"].mean() if len(filtered_df) > 0 and not filtered_df["SLA_Met"].isna().all() else 0
     st.metric("Overall SLA Compliance", f"{overall_sla:.1%}")
-
-# Quick insights based on key metrics
-if len(filtered_df) > 0:
-    st.write("#### Key Performance Insights")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Open ticket analysis
-        open_rate = (open_tickets / total_tickets * 100) if total_tickets > 0 else 0
-        if open_rate > 15:
-            st.warning(f"⚠️ **Open Ticket Alert**: {open_rate:.1f}% of tickets remain open - may indicate backlog issues")
-        elif open_rate < 5:
-            st.success(f"✅ **Excellent Closure Rate**: Only {open_rate:.1f}% tickets remain open")
-        else:
-            st.info(f"📊 **Normal Open Rate**: {open_rate:.1f}% of tickets are open")
-    
-    with col2:
-        # SLA performance analysis
-        if overall_sla < 0.85:
-            st.error(f"🚨 **SLA Critical**: {overall_sla:.1%} compliance - immediate action required")
-        elif overall_sla < 0.90:
-            st.warning(f"⚠️ **SLA Warning**: {overall_sla:.1%} compliance - below BUMA minimum requirement")
-        elif overall_sla < 0.95:
-            st.info(f"📊 **SLA Good**: {overall_sla:.1%} compliance - above minimum, below expected target")
-        else:
-            st.success(f"🎆 **SLA Excellent**: {overall_sla:.1%} compliance - exceeding expected targets")
-
 
 # --- Tabbed Interface for Dashboard Sections ---
 tab_overview, tab_buma_sla, tab_performance, tab_categorical, tab_quality, tab_data = st.tabs([
